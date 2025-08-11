@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDF Page Splitter & Imposer — 16-up with per-mini-page watermark</title>
+
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+<style>
+    :root{
+        --primary:#007bff; --secondary:#6c757d; --bg:#f8f9fa; --card:#fff;
+        --text:#212529; --border:#dee2e6; --success:#28a745;
+    }
+    body{font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial; background:var(--bg); color:var(--text); margin:0; padding:20px; display:flex; justify-content:center;}
+    .container{max-width:900px;width:100%;background:var(--card);padding:28px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.08);}
+    h1{color:var(--primary); text-align:center; margin:0 0 8px;}
+    p.desc{color:var(--secondary); text-align:center; margin:0 0 20px;}
+    .section{margin-bottom:18px;padding:16px;border:1px solid var(--border);border-radius:6px;}
+    .upload-area{display:block;text-align:center;border:2px dashed var(--border);padding:36px;border-radius:6px;cursor:pointer;}
+    .upload-area:hover{background:#eef2f6;border-color:var(--primary);}
+    #pdf-upload{display:none;}
+    #files-list-container{margin-top:20px;}
+    #files-list{list-style:none;padding:0;}
+    #files-list li{padding:10px;border:1px solid var(--border);margin-bottom:10px;cursor:move;display:flex;justify-content:space-between;align-items:center;}
+    #files-list li button{margin-left:10px;padding:5px 10px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;}
+    #file-name{margin-top:12px;font-weight:600;color:var(--primary);}
+    details{border:1px solid var(--border);border-radius:6px;padding:10px;}
+    summary{font-weight:700;color:var(--primary);cursor:pointer;}
+    .watermark-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;}
+    .control-group{display:flex;flex-direction:column;}
+    .control-group label{margin-bottom:6px;font-size:.9rem;color:var(--secondary);}
+    input[type="text"], input[type="color"], select{padding:8px;border-radius:6px;border:1px solid var(--border);width:100%;}
+    .btn{display:block;width:100%;padding:12px;font-weight:700;color:#fff;background:var(--primary);border:none;border-radius:6px;cursor:pointer;}
+    .btn:disabled{background:var(--secondary);cursor:not-allowed;}
+    #progress-container{text-align:center;margin-top:16px;}
+    #output-container{display:none;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;}
+    .output-box{text-align:center;}
+    .output-box canvas{border:1px solid var(--border);max-width:400px;width:100%;height:auto;}
+    .download-btn{display:inline-block;margin-top:12px;padding:10px 16px;background:var(--success);color:#fff;border-radius:6px;text-decoration:none;}
+    .hidden{display:none;}
+    #watermark-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;justify-content:center;align-items:center;z-index:10;}
+    #watermark-modal .modal-content{background:white;padding:20px;border-radius:8px;max-width:600px;width:90%;}
+    #watermark-modal .modal-content button.close{margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>FINAL YEAR PROJECT</h1>
+    <p class="desc">Upload PDFs/Images and CRACK YOUR EXAM!</p>
+
+    <div class="section">
+        <label class="upload-area" for="pdf-upload">
+            <div>Click to select files (PDFs or Images, multiple OK)</div>
+            <p id="file-name">No files selected</p>
+        </label>
+        <input id="pdf-upload" type="file" accept="application/pdf,image/png,image/jpeg" multiple>
+    </div>
+
+    <div id="files-list-container" class="hidden">
+        <h3>Uploaded Files (Drag to Reorder)</h3>
+        <ul id="files-list"></ul>
+        <button id="add-more-files" class="btn">Add More Files</button>
+    </div>
+
+    <div class="section">
+        <label for="paper-size">Paper Size</label>
+        <select id="paper-size">
+            <option value="a4">A4 (595x842 pt)</option>
+            <option value="letter">Letter (612x792 pt)</option>
+            <option value="a3">A3 (842x1191 pt)</option>
+        </select>
+    </div>
+
+    <div class="section">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <input id="separate-files" type="checkbox">
+            <label for="separate-files">Start each file on a new sheet (pad with blanks)</label>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+            <input id="cutting-guides" type="checkbox">
+            <label for="cutting-guides">Add Cutting Guides (Dashed Lines)</label>
+        </div>
+    </div>
+
+    <div class="section">
+        <details>
+            <summary>Global Watermark Options (Optional)</summary>
+            <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+                <input id="watermark-enabled" type="checkbox">
+                <label for="watermark-enabled">Enable Watermark</label>
+            </div>
+            <fieldset id="watermark-options" disabled style="margin-top:12px;border:none;padding:0;">
+                <div class="watermark-grid">
+                    <div class="control-group">
+                        <label for="watermark-text">Text</label>
+                        <input id="watermark-text" type="text" value="">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-position">Position</label>
+                        <select id="watermark-position">
+                            <option value="center">Center</option>
+                            <option value="top-left">Top-Left</option>
+                            <option value="top-right">Top-Right</option>
+                            <option value="bottom-left">Bottom-Left</option>
+                            <option value="bottom-right">Bottom-Right</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-opacity">Opacity (<span id="opacity-value">0.5</span>)</label>
+                        <input id="watermark-opacity" type="range" min="0" max="1" step="0.05" value="0.5">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-size">Font Size (<span id="size-value">50</span>pt)</label>
+                        <input id="watermark-size" type="range" min="8" max="150" step="1" value="50">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-rotation">Rotation (<span id="rotation-value">45</span>°)</label>
+                        <input id="watermark-rotation" type="range" min="-90" max="90" step="5" value="45">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-color">Color</label>
+                        <input id="watermark-color" type="color" value="#ff0000">
+                    </div>
+                </div>
+            </fieldset>
+        </details>
+    </div>
+
+    <button id="process-btn" class="btn" disabled>Process Files</button>
+
+    <div id="progress-container" class="hidden">
+        <p id="progress-text">Processing...</p>
+    </div>
+
+    <div id="output-container">
+        <div class="output-box">
+            <h3>Odd Pages Output</h3>
+            <canvas id="odd-preview"></canvas>
+            <a id="download-odd-link" class="download-btn hidden" download>Download Odd PDF</a>
+        </div>
+        <div class="output-box">
+            <h3>Even Pages Output</h3>
+            <canvas id="even-preview"></canvas>
+            <a id="download-even-link" class="download-btn hidden" download>Download Even PDF</a>
+        </div>
+    </div>
+</div>
+
+<div id="watermark-modal">
+    <div class="modal-content">
+        <h3>Set Watermark for File</h3>
+        <div class="watermark-grid">
+            <div class="control-group">
+                <label for="modal-wm-text">Text</label>
+                <input id="modal-wm-text" type="text" value="">
+            </div>
+            <div class="control-group">
+                <label for="modal-wm-position">Position</label>
+                <select id="modal-wm-position">
+                    <option value="center">Center</option>
+                    <option value="top-left">Top-Left</option>
+                    <option value="top-right">Top-Right</option>
+                    <option value="bottom-left">Bottom-Left</option>
+                    <option value="bottom-right">Bottom-Right</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="modal-wm-opacity">Opacity (<span id="modal-opacity-value">0.5</span>)</label>
+                <input id="modal-wm-opacity" type="range" min="0" max="1" step="0.05" value="0.5">
+            </div>
+            <div class="control-group">
+                <label for="modal-wm-size">Font Size (<span id="modal-size-value">50</span>pt)</label>
+                <input id="modal-wm-size" type="range" min="8" max="150" step="1" value="50">
+            </div>
+            <div class="control-group">
+                <label for="modal-wm-rotation">Rotation (<span id="modal-rotation-value">45</span>°)</label>
+                <input id="modal-wm-rotation" type="range" min="-90" max="90" step="5" value="45">
+            </div>
+            <div class="control-group">
+                <label for="modal-wm-color">Color</label>
+                <input id="modal-wm-color" type="color" value="#ff0000">
+            </div>
+        </div>
+        <button class="btn close">Save and Close</button>
+    </div>
+</div>
+
+<script>
+/* Setup PDF.js worker */
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
+
+/* DOM refs */
+const pdfUpload = document.getElementById('pdf-upload');
+const fileNameDisplay = document.getElementById('file-name');
+const filesList = document.getElementById('files-list');
+const filesListContainer = document.getElementById('files-list-container');
+const addMoreFiles = document.getElementById('add-more-files');
+const processBtn = document.getElementById('process-btn');
+const progressContainer = document.getElementById('progress-container');
+const progressText = document.getElementById('progress-text');
+const outputContainer = document.getElementById('output-container');
+
+const wmEnabled = document.getElementById('watermark-enabled');
+const wmOptions = document.getElementById('watermark-options');
+const wmText = document.getElementById('watermark-text');
+const wmPosition = document.getElementById('watermark-position');
+const wmOpacity = document.getElementById('watermark-opacity');
+const wmSize = document.getElementById('watermark-size');
+const wmRotation = document.getElementById('watermark-rotation');
+const wmColor = document.getElementById('watermark-color');
+const opacityValue = document.getElementById('opacity-value');
+const sizeValue = document.getElementById('size-value');
+const rotationValue = document.getElementById('rotation-value');
+
+const modal = document.getElementById('watermark-modal');
+const modalWmText = document.getElementById('modal-wm-text');
+const modalWmPosition = document.getElementById('modal-wm-position');
+const modalWmOpacity = document.getElementById('modal-wm-opacity');
+const modalOpacityValue = document.getElementById('modal-opacity-value');
+const modalWmSize = document.getElementById('modal-wm-size');
+const modalSizeValue = document.getElementById('modal-size-value');
+const modalWmRotation = document.getElementById('modal-wm-rotation');
+const modalRotationValue = document.getElementById('modal-rotation-value');
+const modalWmColor = document.getElementById('modal-wm-color');
+const modalClose = modal.querySelector('.close');
+
+const separateFiles = document.getElementById('separate-files');
+const cuttingGuides = document.getElementById('cutting-guides');
+const paperSizeSelect = document.getElementById('paper-size');
+
+const oddCanvas = document.getElementById('odd-preview');
+const evenCanvas = document.getElementById('even-preview');
+const downloadOddLink = document.getElementById('download-odd-link');
+const downloadEvenLink = document.getElementById('download-even-link');
+
+let selectedFiles = [];
+let watermarkPerFile = {}; // fileName -> options
+let currentFileForModal = null;
+
+const paperSizes = {
+    a4: [595, 842],
+    letter: [612, 792],
+    a3: [842, 1191]
+};
+
+/* Events */
+pdfUpload.addEventListener('change', handleFileUpload);
+addMoreFiles.addEventListener('click', () => pdfUpload.click());
+
+function handleFileUpload(e) {
+    const newFiles = Array.from(e.target.files);
+    selectedFiles = selectedFiles.concat(newFiles);
+    renderFilesList();
+    if (selectedFiles.length > 0) {
+        filesListContainer.classList.remove('hidden');
+        processBtn.disabled = false;
+        fileNameDisplay.textContent = `${selectedFiles.length} files selected`;
+    }
+}
+
+function renderFilesList() {
+    filesList.innerHTML = '';
+    selectedFiles.forEach((file, index) => {
+        const li = document.createElement('li');
+        li.dataset.index = index;
+        li.innerHTML = `<span>${file.name}</span><button class="set-wm">Set Watermark</button>`;
+        li.querySelector('.set-wm').addEventListener('click', () => openWatermarkModal(file.name));
+        filesList.appendChild(li);
+    });
+    Sortable.create(filesList, {
+        animation: 150,
+        onEnd: updateFileOrder
+    });
+}
+
+function updateFileOrder() {
+    const newOrder = Array.from(filesList.querySelectorAll('li')).map(li => parseInt(li.dataset.index));
+    selectedFiles = newOrder.map(i => selectedFiles[i]);
+    renderFilesList(); // Re-render to update indices
+}
+
+function openWatermarkModal(fileName) {
+    currentFileForModal = fileName;
+    const opts = watermarkPerFile[fileName] || {};
+    modalWmText.value = opts.text || '';
+    modalWmPosition.value = opts.position || 'center';
+    modalWmOpacity.value = opts.opacity || 0.5;
+    modalOpacityValue.textContent = modalWmOpacity.value;
+    modalWmSize.value = opts.size || 50;
+    modalSizeValue.textContent = modalWmSize.value;
+    modalWmRotation.value = opts.rotation || 45;
+    modalRotationValue.textContent = modalWmRotation.value;
+    modalWmColor.value = opts.color || '#ff0000';
+    modal.style.display = 'flex';
+}
+
+modalWmOpacity.addEventListener('input', () => modalOpacityValue.textContent = modalWmOpacity.value);
+modalWmSize.addEventListener('input', () => modalSizeValue.textContent = modalWmSize.value);
+modalWmRotation.addEventListener('input', () => modalRotationValue.textContent = modalWmRotation.value);
+
+modalClose.addEventListener('click', () => {
+    const hex = modalWmColor.value;
+    watermarkPerFile[currentFileForModal] = {
+        text: modalWmText.value.trim(),
+        position: modalWmPosition.value,
+        opacity: parseFloat(modalWmOpacity.value),
+        size: parseInt(modalWmSize.value, 10),
+        rotation: parseInt(modalWmRotation.value, 10),
+        color: {
+            r: parseInt(hex.slice(1,3),16) / 255,
+            g: parseInt(hex.slice(3,5),16) / 255,
+            b: parseInt(hex.slice(5,7),16) / 255
+        }
+    };
+    modal.style.display = 'none';
+});
+
+wmEnabled.addEventListener('change', () => {
+    wmOptions.disabled = !wmEnabled.checked;
+});
+
+wmOpacity.addEventListener('input', () => opacityValue.textContent = wmOpacity.value);
+wmSize.addEventListener('input', () => sizeValue.textContent = wmSize.value);
+wmRotation.addEventListener('input', () => rotationValue.textContent = wmRotation.value);
+
+processBtn.addEventListener('click', processPDF);
+
+/* Main processing */
+async function processPDF() {
+    if (selectedFiles.length === 0) { alert('Please select files first.'); return; }
+
+    processBtn.disabled = true;
+    progressContainer.classList.remove('hidden');
+    outputContainer.style.display = 'none';
+    downloadOddLink.classList.add('hidden'); downloadEvenLink.classList.add('hidden');
+    progressText.textContent = 'Reading files...';
+
+    try {
+        const { PDFDocument, rgb, degrees } = PDFLib;
+        const masterPdf = await PDFDocument.create();
+        const fileRanges = []; // [{fileName, start, end}]
+        let currentPageIndex = 0;
+
+        for (const file of selectedFiles) {
+            progressText.textContent = `Processing ${file.name}...`;
+            let filePdf;
+            if (file.type === 'application/pdf') {
+                filePdf = await PDFDocument.load(await file.arrayBuffer());
+            } else if (file.type.startsWith('image/')) {
+                filePdf = await PDFDocument.create();
+                const bytes = await file.arrayBuffer();
+                let image;
+                if (file.type === 'image/png') {
+                    image = await filePdf.embedPng(bytes);
+                } else if (file.type === 'image/jpeg') {
+                    image = await filePdf.embedJpg(bytes);
+                } else {
+                    continue; // Unsupported image type
+                }
+                const page = filePdf.addPage([image.width, image.height]);
+                page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+            } else {
+                continue; // Unsupported file
+            }
+
+            const pages = filePdf.getPages();
+            const start = currentPageIndex;
+            for (const page of pages) {
+                const newPage = masterPdf.addPage([page.getWidth(), page.getHeight()]);
+                const embeddedPages = await masterPdf.embedPdf(filePdf, [pages.indexOf(page)]);
+                newPage.drawPage(embeddedPages[0]);
+                currentPageIndex++;
+            }
+            const end = currentPageIndex - 1;
+            fileRanges.push({ fileName: file.name, start, end });
+
+            if (separateFiles.checked && selectedFiles.indexOf(file) < selectedFiles.length - 1) {
+                const currentCount = masterPdf.getPageCount();
+                const toAdd = (16 - (currentCount % 16)) % 16;
+                for (let j = 0; j < toAdd; j++) {
+                    masterPdf.addPage(paperSizes[paperSizeSelect.value]);
+                }
+                currentPageIndex += toAdd;
+            }
+        }
+
+        const pageCount = masterPdf.getPageCount();
+        const oddPageIndices = [], evenPageIndices = [];
+        for (let i = 0; i < pageCount; i++) {
+            if ((i + 1) % 2 !== 0) oddPageIndices.push(i);
+            else evenPageIndices.push(i);
+        }
+
+        const globalWatermarkOptions = wmEnabled.checked ? getWatermarkOptions('global') : null;
+
+        const masterBytes = await masterPdf.save();
+
+        progressText.textContent = 'Imposing odd pages...';
+        const oddOutputPdf = await createImposedPdf(masterBytes, oddPageIndices, 'odd', (t)=>progressText.textContent=t, globalWatermarkOptions, fileRanges);
+        progressText.textContent = 'Imposing even pages...';
+        const evenOutputPdf = await createImposedPdf(masterBytes, evenPageIndices, 'even', (t)=>progressText.textContent=t, globalWatermarkOptions, fileRanges);
+
+        progressText.textContent = 'Finalizing files...';
+        const oddPdfBytes = await oddOutputPdf.save();
+        const evenPdfBytes = await evenOutputPdf.save();
+
+        setupDownload(downloadOddLink, oddPdfBytes, `combined_odd.pdf`);
+        setupDownload(downloadEvenLink, evenPdfBytes, `combined_even.pdf`);
+
+        await renderPreview(oddPdfBytes, oddCanvas);
+        await renderPreview(evenPdfBytes, evenCanvas);
+
+        outputContainer.style.display = 'grid';
+        progressText.textContent = 'Processing complete!';
+    } catch (err) {
+        console.error('Processing error:', err);
+        progressText.textContent = `Error: ${err.message || err}`;
+        alert(`An error occurred: ${err.message || err}`);
+    } finally {
+        processBtn.disabled = false;
+    }
+}
+
+function getWatermarkOptions(type) {
+    const hex = type === 'global' ? wmColor.value : modalWmColor.value;
+    return {
+        text: (type === 'global' ? wmText.value : modalWmText.value) || '',
+        position: type === 'global' ? wmPosition.value : modalWmPosition.value,
+        opacity: parseFloat(type === 'global' ? wmOpacity.value : modalWmOpacity.value),
+        size: parseInt(type === 'global' ? wmSize.value : modalWmSize.value, 10),
+        rotation: parseInt(type === 'global' ? wmRotation.value : modalWmRotation.value, 10),
+        color: {
+            r: parseInt(hex.slice(1,3),16) / 255,
+            g: parseInt(hex.slice(3,5),16) / 255,
+            b: parseInt(hex.slice(5,7),16) / 255
+        }
+    };
+}
+
+/* Modified createImposedPdf to handle per-file wm, cutting guides, paper size, separation labels */
+async function createImposedPdf(originalBytes, pageIndices, type, updateProgress, globalWatermarkOptions, fileRanges) {
+    const { PDFDocument, StandardFonts, rgb, degrees } = PDFLib;
+    const outputPdf = await PDFDocument.create();
+
+    if (!pageIndices || pageIndices.length === 0) return outputPdf;
+
+    const paperSize = paperSizes[paperSizeSelect.value];
+    const PAGE_WIDTH = paperSize[0], PAGE_HEIGHT = paperSize[1];
+    const cellCols = 4, cellRows = 4;
+    const cellWidth = PAGE_WIDTH / cellCols;
+    const cellHeight = PAGE_HEIGHT / cellRows;
+
+    let embeddedFont = null;
+    if (globalWatermarkOptions) {
+        embeddedFont = await outputPdf.embedFont(StandardFonts.HelveticaBold);
+    }
+
+    const numSheets = Math.ceil(pageIndices.length / 16);
+
+    for (let s = 0; s < numSheets; s++) {
+        updateProgress(`Building ${type} layout (${s+1}/${numSheets})...`);
+        const targetPage = outputPdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+
+        const pageChunk = pageIndices.slice(s * 16, (s + 1) * 16);
+        const embeddedPages = await outputPdf.embedPdf(originalBytes, pageChunk);
+
+        for (let i = 0; i < pageChunk.length; i++) {  // Use pageChunk.length to skip blanks if any
+            const originalIndex = pageChunk[i];
+            const embeddedPage = embeddedPages[i];
+
+            const row = Math.floor(i / cellCols);
+            const col = (type === 'odd') ? (i % cellCols) : (cellCols - 1 - (i % cellCols));
+
+            const cellX = col * cellWidth;
+            const cellY = PAGE_HEIGHT - (row + 1) * cellHeight;
+
+            const eW = embeddedPage.width;
+            const eH = embeddedPage.height;
+            const scale = Math.min(cellWidth / eW, cellHeight / eH);
+            const drawW = eW * scale;
+            const drawH = eH * scale;
+
+            const drawX = cellX + (cellWidth - drawW) / 2;
+            const drawY = cellY + (cellHeight - drawH) / 2;
+
+            targetPage.drawPage(embeddedPage, { x: drawX, y: drawY, width: drawW, height: drawH });
+
+            // Watermark
+            if (globalWatermarkOptions && embeddedFont) {
+                const fileRange = fileRanges.find(r => originalIndex >= r.start && originalIndex <= r.end);
+                const fileName = fileRange ? fileRange.fileName : '';
+                const perFileOpts = watermarkPerFile[fileName] || {};
+                const opts = { ...globalWatermarkOptions, ...perFileOpts };
+
+                let miniText = `${opts.text} ${originalIndex + 1}`;
+
+                // Add separation label if first page of new file (and not first file)
+                if (separateFiles.checked && fileRange && originalIndex === fileRange.start && fileRanges.indexOf(fileRange) > 0) {
+                    targetPage.drawText(`Start of ${fileName}`, {
+                        x: drawX + 5,
+                        y: drawY + drawH - 15,
+                        size: 10,
+                        font: embeddedFont,
+                        color: rgb(0.5, 0.5, 0.5),
+                        opacity: 0.3
+                    });
+                }
+
+                const desiredSize = opts.size || 50;
+                const maxSize = Math.floor(drawH * 0.35);
+                const fontSize = Math.min(desiredSize, maxSize);
+
+                let textWidth = embeddedFont.widthOfTextAtSize(miniText, fontSize);
+                const textHeight = fontSize;
+
+                let wx, wy;
+                switch (opts.position) {
+                    case 'top-left':
+                        wx = drawX + 5;
+                        wy = drawY + drawH - textHeight - 5;
+                        break;
+                    case 'top-right':
+                        wx = drawX + drawW - textWidth - 5;
+                        wy = drawY + drawH - textHeight - 5;
+                        break;
+                    case 'bottom-left':
+                        wx = drawX + 5;
+                        wy = drawY + 5;
+                        break;
+                    case 'bottom-right':
+                        wx = drawX + drawW - textWidth - 5;
+                        wy = drawY + 5;
+                        break;
+                    case 'center':
+                    default:
+                        wx = drawX + (drawW - textWidth) / 2;
+                        wy = drawY + (drawH - textHeight) / 2;
+                        break;
+                }
+
+                if (wx < drawX + 2) wx = drawX + 2;
+                if (wy < drawY + 2) wy = drawY + 2;
+
+                const color = rgb(opts.color.r, opts.color.g, opts.color.b);
+
+                targetPage.drawText(miniText, {
+                    x: wx,
+                    y: wy,
+                    size: fontSize,
+                    font: embeddedFont,
+                    color,
+                    opacity: opts.opacity,
+                    rotate: degrees(opts.rotation)
+                });
+            }
+        }
+
+        // Cutting guides if enabled
+        if (cuttingGuides.checked) {
+            // Vertical lines
+            for (let col = 1; col < cellCols; col++) {
+                targetPage.drawLine({
+                    start: { x: col * cellWidth, y: PAGE_HEIGHT },
+                    end: { x: col * cellWidth, y: 0 },
+                    thickness: 0.5,
+                    color: rgb(0, 0, 0),
+                    opacity: 0.5,
+                    dashArray: [2, 2],
+                    dashPhase: 0
+                });
+            }
+            // Horizontal lines
+            for (let row = 1; row < cellRows; row++) {
+                const y = PAGE_HEIGHT - row * cellHeight;
+                targetPage.drawLine({
+                    start: { x: 0, y },
+                    end: { x: PAGE_WIDTH, y },
+                    thickness: 0.5,
+                    color: rgb(0, 0, 0),
+                    opacity: 0.5,
+                    dashArray: [2, 2],
+                    dashPhase: 0
+                });
+            }
+        }
+    }
+
+    return outputPdf;
+}
+
+/* Helpers */
+function setupDownload(linkElement, bytes, filename) {
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    linkElement.href = url;
+    linkElement.download = filename;
+    linkElement.classList.remove('hidden');
+}
+
+async function renderPreview(pdfBytes, canvasElement) {
+    const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+    const pdf = await loadingTask.promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 1.2 });
+    canvasElement.height = viewport.height;
+    canvasElement.width = viewport.width;
+    const ctx = canvasElement.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+}
+</script>
+</body>
+</html>
