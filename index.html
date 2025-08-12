@@ -27,7 +27,8 @@
         .btn { padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 5px; cursor: pointer; transition: background 0.3s; }
         .btn:hover { background: #45a049; }
         .btn:disabled { background: var(--secondary); cursor: not-allowed; }
-        .remove-btn { background: var(--error); margin-left: auto; }
+        .btn.delete { background: var(--error); margin-left: 10px; }
+        .btn.reload { background: #2196F3; margin-left: 10px; }
         .control-group { margin-bottom: 10px; }
         .control-group label { display: block; font-weight: bold; }
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 100; }
@@ -36,6 +37,7 @@
         #progress-bar { height: 100%; background: var(--primary); width: 0; transition: width 0.3s; }
         .hidden { display: none; }
         #output-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        #upload-info { text-align: center; color: var(--secondary); }
         @media (max-width: 768px) { #output-container { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -49,9 +51,10 @@
             <input type="file" id="file-input" accept="application/pdf,image/png,image/jpeg" multiple style="display: none;">
         </div>
 
+        <p id="upload-info" class="hidden"></p>
+
         <div id="files-section" class="section hidden">
             <h3>Files (Drag to Reorder)</h3>
-            <p id="total-files">Total files: 0</p>
             <ul id="files-list"></ul>
             <button class="btn" id="add-more">Add More</button>
         </div>
@@ -156,9 +159,9 @@
 
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
+        const uploadInfo = document.getElementById('upload-info');
         const filesList = document.getElementById('files-list');
         const filesSection = document.getElementById('files-section');
-        const totalFiles = document.getElementById('total-files');
         const addMore = document.getElementById('add-more');
         const processBtn = document.getElementById('process-btn');
         const progressSection = document.getElementById('progress-section');
@@ -188,7 +191,7 @@
         const marginSlider = document.getElementById('margin-slider');
         const marginValue = document.getElementById('margin-value');
 
-        let files = []; // {name, data: ArrayBuffer, pages: [{pageNum?, thumbnail: dataURL, wm?}] , wm?}
+        let files = []; // {name, bytes, size, pages: [{pageNum?, thumbnail, wm?}], wm?}
         let globalWm = null;
         let currentWmContext = null; // 'global' or {fileIndex, pageIndex?}
         let paperSizes = { a4: [595, 842], letter: [612, 792], a3: [842, 1191] };
@@ -207,13 +210,13 @@
 
         async function handleFiles(e) {
             const newFiles = Array.from(e.target.files);
+            let totalSize = 0;
             for (const f of newFiles) {
                 const data = await f.arrayBuffer();
-                const item = { name: f.name, data, pages: [] };
+                totalSize += data.byteLength;
+                const item = { name: f.name, bytes: data, size: f.size, pages: [] };
                 if (f.type === 'application/pdf') {
-                    const uint8Data = new Uint8Array(data);
-                    const copyForPdfjs = uint8Data.slice(0); // Copy for pdfjs to avoid detachment
-                    const pdf = await pdfjsLib.getDocument(copyForPdfjs).promise;
+                    const pdf = await pdfjsLib.getDocument({data: new Uint8Array(data)}).promise; // Copy buffer
                     for (let p = 1; p <= pdf.numPages; p++) {
                         const page = await pdf.getPage(p);
                         const vp = page.getViewport({scale: 1});
@@ -221,8 +224,8 @@
                         canvas.width = vp.width; canvas.height = vp.height;
                         await page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
                         const thumbCanvas = document.createElement('canvas');
-                        const thumbScale = 80 / vp.width;
-                        thumbCanvas.width = 80; thumbCanvas.height = vp.height * thumbScale;
+                        const ratio = vp.height / vp.width;
+                        thumbCanvas.width = 80; thumbCanvas.height = 80 * ratio;
                         thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
                         item.pages.push({pageNum: p, thumbnail: thumbCanvas.toDataURL()});
                     }
@@ -234,8 +237,8 @@
                     canvas.width = img.width; canvas.height = img.height;
                     canvas.getContext('2d').drawImage(img, 0, 0);
                     const thumbCanvas = document.createElement('canvas');
-                    const thumbScale = 80 / img.width;
-                    thumbCanvas.width = 80; thumbCanvas.height = img.height * thumbScale;
+                    const ratio = img.height / img.width;
+                    thumbCanvas.width = 80; thumbCanvas.height = 80 * ratio;
                     thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
                     item.pages.push({thumbnail: thumbCanvas.toDataURL()});
                 }
@@ -243,7 +246,7 @@
             }
             renderFilesList();
             filesSection.classList.remove('hidden');
-            processBtn.disabled = files.length === 0;
+            updateUploadInfo();
             e.target.value = '';
         }
 
@@ -252,7 +255,7 @@
             files.forEach((file, fi) => {
                 const li = document.createElement('li');
                 li.id = `file-${fi}`;
-                li.innerHTML = `<canvas width="50" height="70"></canvas><span>${file.name} (${file.pages.length} pages)</span><button class="expand">Expand Pages</button><button class="edit-wm">Edit File WM</button><button class="remove-btn">Remove</button>`;
+                li.innerHTML = `<canvas width="50" height="70"></canvas><span>${file.name} (${file.pages.length} pages, ${(file.size / 1024).toFixed(2)} KB)</span><button class="expand">Expand</button><button class="edit-wm">Edit WM</button><button class="reload btn reload">Reload</button><button class="delete btn delete">Remove</button>`;
                 const thumbCanvas = li.querySelector('canvas');
                 if (file.pages[0]) {
                     const img = new Image();
@@ -274,13 +277,22 @@
                 li.appendChild(pagesDiv);
                 li.querySelector('.expand').addEventListener('click', () => li.classList.toggle('expanded'));
                 li.querySelector('.edit-wm').addEventListener('click', () => openWmModal({fileIndex: fi}));
-                li.querySelector('.remove-btn').addEventListener('click', () => {
+                li.querySelector('.delete').addEventListener('click', () => {
                     files.splice(fi, 1);
                     renderFilesList();
+                    updateUploadInfo();
+                });
+                li.querySelector('.reload').addEventListener('click', async () => {
+                    const oldFile = files[fi];
+                    const blob = new Blob([oldFile.bytes]);
+                    const tempFile = new File([blob], oldFile.name, {type: 'application/octet-stream'});
+                    await handleFiles({target: {files: [tempFile]}});
+                    files.splice(fi, 1);
+                    renderFilesList();
+                    updateUploadInfo();
                 });
                 filesList.appendChild(li);
             });
-            totalFiles.textContent = `Total files: ${files.length}`;
             Sortable.create(filesList, {
                 animation: 150,
                 onEnd: (evt) => {
@@ -291,6 +303,15 @@
             });
         }
 
+        function updateUploadInfo() {
+            const totalFiles = files.length;
+            const totalSize = files.reduce((sum, f) => sum + f.size, 0) / 1048576;
+            uploadInfo.textContent = totalFiles > 0 ? `${totalFiles} files uploaded (~${totalSize.toFixed(2)} MB)` : '';
+            uploadInfo.classList.toggle('hidden', totalFiles === 0);
+            processBtn.disabled = totalFiles === 0;
+        }
+
+        // Rest of the script remains the same as previous (openWmModal, saveWmOptions, hexToRgb, process, impose, updateProgress, setupDownload, renderPreview)
         function openWmModal(context) {
             currentWmContext = context;
             let opts;
@@ -360,28 +381,24 @@
                 updateProgress('Combining files...', 10);
                 for (const file of files) {
                     fileStarts.push({start: pageIndex, name: file.name});
-                    for (const p of file.pages) {
-                        let pdfPage;
-                        if (p.pageNum) {
-                            const src = await PDFDocument.load(file.data);
-                            const [emb] = await master.embedPdf(src, [p.pageNum - 1]);
-                            pdfPage = master.addPage([emb.width, emb.height]);
-                            pdfPage.drawPage(emb);
-                        } else {
-                            const src = await PDFDocument.create();
-                            let image;
-                            const imageBytes = await fetch(p.thumbnail).then(res => res.arrayBuffer()); // Thumbnail is dataURL, but for embed, need original? Wait, for images, p no bytes, wait error.
-                            // Wait, in handleFiles, for images, no p.bytes, only thumbnail.
-                            // Fix: for images, store bytes in item.pages[0].bytes = data;
-                            // But in previous code, for images, push({thumbnail})
-                            // Missing! Add in handleFiles for images: item.pages.push({bytes: data, thumbnail: thumbCanvas.toDataURL()});
-                            // Yes, fix that.
-                            // Assume fixed.
-                            if (new Blob([p.bytes]).type === 'image/png') image = await src.embedPng(p.bytes);
-                            else image = await src.embedJpg(p.bytes);
-                            pdfPage = master.addPage([image.width, image.height]);
-                            pdfPage.drawImage(image, {x:0, y:0, width: image.width, height: image.height});
+                    if (file.pages.length > 1) { // PDF
+                        const srcBuffer = new Uint8Array(file.bytes); // Copy buffer
+                        const src = await PDFDocument.load(srcBuffer);
+                        for (const p of file.pages) {
+                            const [copied] = await master.copyPages(src, [p.pageNum - 1]);
+                            master.addPage(copied);
+                            pageIndex++;
                         }
+                    } else { // Image
+                        const src = await PDFDocument.create();
+                        let image;
+                        const imgBuffer = new Uint8Array(file.bytes);
+                        if (new Blob([imgBuffer]).type === 'image/png') image = await src.embedPng(imgBuffer);
+                        else image = await src.embedJpg(imgBuffer);
+                        const pdfPage = src.addPage([image.width, image.height]);
+                        pdfPage.drawImage(image, {x:0, y:0, width: image.width, height: image.height});
+                        const [copied] = await master.copyPages(src, [0]);
+                        master.addPage(copied);
                         pageIndex++;
                     }
                     if (document.getElementById('separate-files').checked && files.indexOf(file) < files.length - 1) {
@@ -402,9 +419,9 @@
                 const masterBytes = await master.save();
 
                 updateProgress('Imposing odd pages...', 40);
-                const oddPdf = await impose(masterBytes, oddIndices, 'odd', fileStarts);
+                const oddPdf = await impose(new Uint8Array(masterBytes), oddIndices, 'odd', fileStarts) || await PDFDocument.create(); // Fallback empty
                 updateProgress('Imposing even pages...', 70);
-                const evenPdf = await impose(masterBytes, evenIndices, 'even', fileStarts);
+                const evenPdf = await impose(new Uint8Array(masterBytes), evenIndices, 'even', fileStarts) || await PDFDocument.create(); // Fallback empty
 
                 updateProgress('Finalizing...', 90);
                 const oddBytes = await oddPdf.save();
@@ -426,17 +443,105 @@
             }
         }
 
-        // Rest of the code remains the same, but add in handleFiles for images: item.pages.push({bytes: data, thumbnail: thumbCanvas.toDataURL()});
-        // Also, in createThumbnail, I used document.createElement, fine.
-        // For image thumbnails, I used thumbCanvas, but in process, for images, p.bytes is data.
-
         async function impose(bytes, indices, type, fileStarts) {
-            // Same as before
-        }
+            try {
+                const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
+                const out = await PDFDocument.create();
+                const srcBuffer = new Uint8Array(bytes); // Copy
+                const src = await PDFDocument.load(srcBuffer);
+                const paper = paperSizes[document.getElementById('paper-size').value];
+                const w = paper[0], h = paper[1];
+                const cols = 4, rows = 4;
+                const cellW = w / cols, cellH = h / rows;
+                const mmToPt = 2.83465;
+                const marginMm = staplingGuides.checked ? parseInt(marginSlider.value) : 0;
+                const marginPt = marginMm * mmToPt;
+                const font = await out.embedFont(StandardFonts.HelveticaBold);
+                const numSheets = Math.ceil(indices.length / 16);
 
-        // Update in handleFiles for images:
-        // After thumbCanvas, item.pages.push({bytes: data, thumbnail: thumbCanvas.toDataURL()});
-        // Yes, that's the fix for images.
+                for (let s = 0; s < numSheets; s++) {
+                    const page = out.addPage([w, h]);
+                    const chunk = indices.slice(s*16, (s+1)*16);
+                    const embPages = await out.embedPdf(srcBuffer, chunk);
+
+                    for (let i = 0; i < 16; i++) {
+                        if (i >= chunk.length) continue; // Blank slot
+                        const origIdx = chunk[i];
+                        const emb = embPages[i];
+                        const row = Math.floor(i / cols);
+                        const col = type === 'odd' ? i % cols : cols - 1 - (i % cols);
+                        let cx = col * cellW, cy = h - (row + 1) * cellH;
+                        let drawX = cx, drawY = cy;
+                        let effW = cellW, effH = cellH;
+
+                        if (staplingGuides.checked) {
+                            const bindSide = (col % 2 === 0 ? 'left' : 'right'); // Simple alternation
+                            if (bindSide === 'left') {
+                                drawX += marginPt;
+                                effW -= marginPt;
+                            } else {
+                                effW -= marginPt;
+                            }
+                        }
+
+                        const scale = Math.min(effW / emb.width, effH / emb.height);
+                        const dw = emb.width * scale, dh = emb.height * scale;
+                        drawX += (effW - dw) / 2;
+                        drawY += (effH - dh) / 2;
+
+                        page.drawPage(emb, {x: drawX, y: drawY, width: dw, height: dh});
+
+                        // Watermark
+                        const file = fileStarts.find(f => origIdx >= f.start) || {};
+                        const fileIdx = files.findIndex(f => f.name === file.name);
+                        const pageWm = fileIdx >= 0 ? files[fileIdx].pages[origIdx - file.start]?.wm : null;
+                        const fileWm = fileIdx >= 0 ? files[fileIdx].wm : null;
+                        const opts = pageWm || fileWm || globalWm;
+                        if (opts) {
+                            let text = opts.text;
+                            if (appendPageNum.checked) text += ` ${origIdx + 1}`;
+                            const size = Math.min(opts.size || 50, dh * 0.35);
+                            const tw = font.widthOfTextAtSize(text, size);
+                            const th = size;
+                            let wx, wy;
+                            switch (opts.position) {
+                                case 'top-left': wx = drawX + 5; wy = drawY + dh - th - 5; break;
+                                case 'top-right': wx = drawX + dw - tw - 5; wy = drawY + dh - th - 5; break;
+                                case 'bottom-left': wx = drawX + 5; wy = drawY + 5; break;
+                                case 'bottom-right': wx = drawX + dw - tw - 5; wy = drawY + 5; break;
+                                default: wx = drawX + (dw - tw)/2; wy = drawY + (dh - th)/2;
+                            }
+                            page.drawText(text, {x: wx, y: wy, size, font, color: rgb(opts.color.r, opts.color.g, opts.color.b), opacity: opts.opacity, rotate: degrees(opts.rotation)});
+                        }
+
+                        // Separation label if new file start
+                        if (document.getElementById('separate-files').checked && fileStarts.some(fs => fs.start === origIdx && fileStarts.indexOf(fs) > 0)) {
+                            page.drawText(`Start: ${file.name}`, {x: drawX + 5, y: drawY + dh - 15, size: 10, font, color: rgb(0.5,0.5,0.5), opacity: 0.3});
+                        }
+                    }
+
+                    // Cutting guides
+                    if (document.getElementById('cutting-guides').checked) {
+                        for (let c = 1; c < cols; c++) page.drawLine({start: {x: c*cellW, y: h}, end: {x: c*cellW, y: 0}, thickness: 0.5, dashArray: [2,2], color: rgb(0,0,0), opacity: 0.5});
+                        for (let r = 1; r < rows; r++) {
+                            const y = h - r*cellH;
+                            page.drawLine({start: {x: 0, y}, end: {x: w, y}, thickness: 0.5, dashArray: [2,2], color: rgb(0,0,0), opacity: 0.5});
+                        }
+                    }
+
+                    // Stapling guides: two bold lines near center (assuming saddle-stitch)
+                    if (staplingGuides.checked) {
+                        const stapleX = w / 2 - 5; // Near fold
+                        page.drawLine({start: {x: stapleX, y: h/2 - 50}, end: {x: stapleX, y: h/2 - 10}, thickness: 1, color: rgb(0,0,0)});
+                        page.drawLine({start: {x: stapleX, y: h/2 + 10}, end: {x: stapleX, y: h/2 + 50}, thickness: 1, color: rgb(0,0,0)});
+                    }
+                }
+                return out;
+            } catch (err) {
+                console.error('Imposition error:', err);
+                return await PDFDocument.create(); // Fallback empty PDF
+            }
+        }
 
         function updateProgress(text, percent) {
             progressText.textContent = text;
