@@ -1,567 +1,464 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mini Book Maker</title>
-    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-    <script src="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-    <style>
-        :root {
-            --primary: #4CAF50; --secondary: #333; --bg: #f4f4f4; --card: #fff;
-            --border: #ddd; --success: #28a745; --error: #f44336;
-        }
-        body { font-family: Arial, sans-serif; background: var(--bg); color: var(--secondary); margin: 0; padding: 20px; display: flex; justify-content: center; }
-        .container { max-width: 1000px; width: 100%; background: var(--card); padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        h1 { color: var(--primary); text-align: center; }
-        .section { margin-bottom: 20px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; }
-        .upload-area { text-align: center; border: 2px dashed var(--border); padding: 30px; border-radius: 8px; cursor: pointer; transition: background 0.3s; }
-        .upload-area:hover { background: #e8f5e9; }
-        #files-list { list-style: none; padding: 0; }
-        #files-list li { padding: 10px; border: 1px solid var(--border); margin-bottom: 10px; display: flex; align-items: center; cursor: move; background: #fff; border-radius: 5px; }
-        #files-list li canvas { width: 50px; height: 70px; margin-right: 10px; border: 1px solid var(--border); }
-        #files-list li .pages { display: none; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 10px; }
-        #files-list li .pages canvas { width: 80px; height: 113px; cursor: pointer; }
-        #files-list li.expanded .pages { display: grid; }
-        .btn { padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 5px; cursor: pointer; transition: background 0.3s; }
-        .btn:hover { background: #45a049; }
-        .btn:disabled { background: var(--secondary); cursor: not-allowed; }
-        .btn.delete { background: var(--error); margin-left: 10px; }
-        .btn.reload { background: #2196F3; margin-left: 10px; }
-        .control-group { margin-bottom: 10px; }
-        .control-group label { display: block; font-weight: bold; }
-        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 100; }
-        .modal-content { background: white; padding: 20px; border-radius: 10px; max-width: 600px; width: 90%; }
-        #progress { width: 100%; background: #ddd; height: 10px; margin-top: 10px; }
-        #progress-bar { height: 100%; background: var(--primary); width: 0; transition: width 0.3s; }
-        .hidden { display: none; }
-        #output-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        #upload-info { text-align: center; color: var(--secondary); }
-        @media (max-width: 768px) { #output-container { grid-template-columns: 1fr; } }
-    </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDF Page Splitter & Imposer — 16-up with per-mini-page watermark</title>
+
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
+
+<style>
+    :root{
+        --primary:#007bff; --secondary:#6c757d; --bg:#f8f9fa; --card:#fff;
+        --text:#212529; --border:#dee2e6; --success:#28a745;
+    }
+    body{font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); margin:0; padding:20px; display:flex; justify-content:center;}
+    .container{max-width:900px;width:100%;background:var(--card);padding:28px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.08);}
+    h1{color:var(--primary); text-align:center; margin:0 0 8px;}
+    p.desc{color:var(--secondary); text-align:center; margin:0 0 20px;}
+    .section{margin-bottom:18px;padding:16px;border:1px solid var(--border);border-radius:6px;}
+    .upload-area{display:block;text-align:center;border:2px dashed var(--border);padding:36px;border-radius:6px;cursor:pointer;transition:border-color .2s, background .2s;}
+    .upload-area:hover, .upload-area.dragover{background:#eef2f6;border-color:var(--primary);}
+    #pdf-upload{display:none;}
+    #file-name{margin-top:12px;font-weight:600;color:var(--primary);}
+    details{border:1px solid var(--border);border-radius:6px;padding:10px;}
+    summary{font-weight:700;color:var(--primary);cursor:pointer;}
+    .watermark-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;}
+    .control-group{display:flex;flex-direction:column;}
+    .control-group label{margin-bottom:6px;font-size:.9rem;color:var(--secondary);}
+    input[type="text"], input[type="color"], select{padding:8px;border-radius:6px;border:1px solid var(--border);width:100%;box-sizing:border-box;}
+    .btn{display:block;width:100%;padding:12px;font-weight:700;color:#fff;background:var(--primary);border:none;border-radius:6px;cursor:pointer;}
+    .btn:disabled{background:var(--secondary);cursor:not-allowed;}
+    #progress-container{text-align:center;margin-top:16px;}
+    #output-container{display:none;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;}
+    @media (max-width: 600px) { #output-container{grid-template-columns:1fr;} }
+    .output-box{text-align:center;}
+    .output-box canvas{border:1px solid var(--border);max-width:400px;width:100%;height:auto;border-radius:4px;}
+    .download-btn{display:inline-block;margin-top:12px;padding:10px 16px;background:var(--success);color:#fff;border-radius:6px;text-decoration:none;font-weight:600;}
+    .hidden{display:none !important;}
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>Mini Book Maker</h1>
-        <p style="text-align: center; color: var(--secondary);">Upload PDFs/Images, reorder, customize, and create mini books!</p>
+<div class="container">
+    <h1>FINAL YEAR PROJECT</h1>
+    <p class="desc">Upload a PDF to create duplex-ready 16-up imposed sheets.</p>
 
-        <div class="section upload-area" id="upload-area">
-            <div>Click to upload files (PDFs/Images, multiple OK)</div>
-            <input type="file" id="file-input" accept="application/pdf,image/png,image/jpeg" multiple style="display: none;">
-        </div>
+    <div class="section">
+        <label class="upload-area" id="drop-zone" for="pdf-upload">
+            <div>Click to select PDF or drag & drop here</div>
+            <p id="file-name">No file selected</p>
+        </label>
+        <input id="pdf-upload" type="file" accept="application/pdf">
+    </div>
 
-        <p id="upload-info" class="hidden"></p>
-
-        <div id="files-section" class="section hidden">
-            <h3>Files (Drag to Reorder)</h3>
-            <ul id="files-list"></ul>
-            <button class="btn" id="add-more">Add More</button>
-        </div>
-
-        <div class="section">
-            <h3>Options</h3>
-            <div class="control-group">
-                <label for="paper-size">Paper Size</label>
-                <select id="paper-size">
-                    <option value="a4">A4</option>
-                    <option value="letter">Letter</option>
-                    <option value="a3">A3</option>
-                </select>
+    <div class="section">
+        <details>
+            <summary>Watermark Options (Optional)</summary>
+            <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+                <input id="watermark-enabled" type="checkbox">
+                <label for="watermark-enabled">Enable Watermark</label>
             </div>
-            <div class="control-group">
-                <input type="checkbox" id="separate-files">
-                <label for="separate-files">Start each file on new sheet</label>
-            </div>
-            <div class="control-group">
-                <input type="checkbox" id="cutting-guides">
-                <label for="cutting-guides">Add Cutting Guides</label>
-            </div>
-            <div class="control-group">
-                <input type="checkbox" id="stapling-guides">
-                <label for="stapling-guides">Add Stapling Guides (with margins)</label>
-                <div id="stapling-margin" style="display: none;">
-                    <label>Margin Size (mm): <span id="margin-value">2</span></label>
-                    <input type="range" min="1" max="5" value="2" id="margin-slider">
+            <fieldset id="watermark-options" disabled style="margin-top:12px;border:none;padding:0;">
+                <div class="watermark-grid">
+                    <div class="control-group">
+                        <label for="watermark-text">Prefix Text</label>
+                        <input id="watermark-text" type="text" placeholder="e.g. EXAM">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-position">Position</label>
+                        <select id="watermark-position">
+                            <option value="center" selected>Center</option>
+                            <option value="top-left">Top-Left</option>
+                            <option value="top-right">Top-Right</option>
+                            <option value="bottom-left">Bottom-Left</option>
+                            <option value="bottom-right">Bottom-Right</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-opacity">Opacity (<span id="opacity-value">0.4</span>)</label>
+                        <input id="watermark-opacity" type="range" min="0" max="1" step="0.05" value="0.4">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-size">Font Size (<span id="size-value">22</span>pt)</label>
+                        <input id="watermark-size" type="range" min="8" max="72" step="1" value="22">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-rotation">Rotation (<span id="rotation-value">45</span>°)</label>
+                        <input id="watermark-rotation" type="range" min="-90" max="90" step="5" value="45">
+                    </div>
+                    <div class="control-group">
+                        <label for="watermark-color">Color</label>
+                        <input id="watermark-color" type="color" value="#dc3545">
+                    </div>
                 </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h3>Watermark</h3>
-            <input type="checkbox" id="wm-enable">
-            <label for="wm-enable">Enable Global Watermark</label>
-            <button class="btn" id="edit-global-wm">Edit Global</button>
-            <input type="checkbox" id="append-page-num">
-            <label for="append-page-num">Append Page Number</label>
-        </div>
-
-        <button class="btn" id="process-btn" disabled>Process</button>
-
-        <div id="progress-section" class="hidden">
-            <p id="progress-text">Processing...</p>
-            <div id="progress"><div id="progress-bar"></div></div>
-        </div>
-
-        <div id="output-container" class="hidden">
-            <div>
-                <h3>Odd PDF</h3>
-                <canvas id="odd-preview"></canvas>
-                <a id="odd-download" class="btn hidden">Download Odd</a>
-            </div>
-            <div>
-                <h3>Even PDF</h3>
-                <canvas id="even-preview"></canvas>
-                <a id="even-download" class="btn hidden">Download Even</a>
-            </div>
-        </div>
+            </fieldset>
+        </details>
     </div>
 
-    <div class="modal" id="wm-modal">
-        <div class="modal-content">
-            <h3 id="wm-title">Edit Watermark</h3>
-            <div class="control-group">
-                <label>Text</label>
-                <input type="text" id="wm-text">
-            </div>
-            <div class="control-group">
-                <label>Position</label>
-                <select id="wm-position">
-                    <option value="center">Center</option>
-                    <option value="top-left">Top-Left</option>
-                    <option value="top-right">Top-Right</option>
-                    <option value="bottom-left">Bottom-Left</option>
-                    <option value="bottom-right">Bottom-Right</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label>Opacity (<span id="wm-opacity-val">0.5</span>)</label>
-                <input type="range" min="0" max="1" step="0.05" value="0.5" id="wm-opacity">
-            </div>
-            <div class="control-group">
-                <label>Size (<span id="wm-size-val">50</span>pt)</label>
-                <input type="range" min="8" max="150" value="50" id="wm-size">
-            </div>
-            <div class="control-group">
-                <label>Rotation (<span id="wm-rotation-val">0</span>°)</label>
-                <input type="range" min="-90" max="90" step="5" value="0" id="wm-rotation">
-            </div>
-            <div class="control-group">
-                <label>Color</label>
-                <input type="color" value="#ff0000" id="wm-color">
-            </div>
-            <button class="btn" id="save-wm">Save</button>
-        </div>
+    <button id="process-btn" class="btn" disabled>Process PDF</button>
+
+    <div id="progress-container" class="hidden">
+        <p id="progress-text">Processing...</p>
     </div>
 
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
+    <div id="output-container">
+        <div class="output-box" id="odd-box">
+            <h3>Odd Pages (Front)</h3>
+            <canvas id="odd-preview"></canvas>
+            <div><a id="download-odd-link" class="download-btn hidden" download>Download Odd PDF</a></div>
+        </div>
+        <div class="output-box" id="even-box">
+            <h3>Even Pages (Back)</h3>
+            <canvas id="even-preview"></canvas>
+            <div><a id="download-even-link" class="download-btn hidden" download>Download Even PDF</a></div>
+        </div>
+    </div>
+</div>
 
-        const uploadArea = document.getElementById('upload-area');
-        const fileInput = document.getElementById('file-input');
-        const uploadInfo = document.getElementById('upload-info');
-        const filesList = document.getElementById('files-list');
-        const filesSection = document.getElementById('files-section');
-        const addMore = document.getElementById('add-more');
-        const processBtn = document.getElementById('process-btn');
-        const progressSection = document.getElementById('progress-section');
-        const progressText = document.getElementById('progress-text');
-        const progressBar = document.getElementById('progress-bar');
-        const outputContainer = document.getElementById('output-container');
-        const oddPreview = document.getElementById('odd-preview');
-        const evenPreview = document.getElementById('even-preview');
-        const oddDownload = document.getElementById('odd-download');
-        const evenDownload = document.getElementById('even-download');
-        const wmModal = document.getElementById('wm-modal');
-        const wmTitle = document.getElementById('wm-title');
-        const wmText = document.getElementById('wm-text');
-        const wmPosition = document.getElementById('wm-position');
-        const wmOpacity = document.getElementById('wm-opacity');
-        const wmOpacityVal = document.getElementById('wm-opacity-val');
-        const wmSize = document.getElementById('wm-size');
-        const wmSizeVal = document.getElementById('wm-size-val');
-        const wmRotation = document.getElementById('wm-rotation');
-        const wmRotationVal = document.getElementById('wm-rotation-val');
-        const wmColor = document.getElementById('wm-color');
-        const saveWm = document.getElementById('save-wm');
-        const editGlobalWm = document.getElementById('edit-global-wm');
-        const appendPageNum = document.getElementById('append-page-num');
-        const staplingGuides = document.getElementById('stapling-guides');
-        const staplingMargin = document.getElementById('stapling-margin');
-        const marginSlider = document.getElementById('margin-slider');
-        const marginValue = document.getElementById('margin-value');
+<script>
+/* Setup PDF.js worker */
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
 
-        let files = []; // {name, bytes, size, pages: [{pageNum?, thumbnail, wm?}], wm?}
-        let globalWm = null;
-        let currentWmContext = null; // 'global' or {fileIndex, pageIndex?}
-        let paperSizes = { a4: [595, 842], letter: [612, 792], a3: [842, 1191] };
+/* DOM refs */
+const pdfUpload = document.getElementById('pdf-upload');
+const dropZone = document.getElementById('drop-zone');
+const fileNameDisplay = document.getElementById('file-name');
+const processBtn = document.getElementById('process-btn');
+const progressContainer = document.getElementById('progress-container');
+const progressText = document.getElementById('progress-text');
+const outputContainer = document.getElementById('output-container');
 
-        uploadArea.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', handleFiles);
-        addMore.addEventListener('click', () => fileInput.click());
-        editGlobalWm.addEventListener('click', () => openWmModal('global'));
-        saveWm.addEventListener('click', saveWmOptions);
-        staplingGuides.addEventListener('change', () => staplingMargin.style.display = staplingGuides.checked ? 'block' : 'none');
-        marginSlider.addEventListener('input', () => marginValue.textContent = marginSlider.value);
-        wmOpacity.addEventListener('input', () => wmOpacityVal.textContent = wmOpacity.value);
-        wmSize.addEventListener('input', () => wmSizeVal.textContent = wmSize.value);
-        wmRotation.addEventListener('input', () => wmRotationVal.textContent = wmRotation.value);
-        processBtn.addEventListener('click', process);
+const wmEnabled = document.getElementById('watermark-enabled');
+const wmOptions = document.getElementById('watermark-options');
+const wmText = document.getElementById('watermark-text');
+const wmPosition = document.getElementById('watermark-position');
+const wmOpacity = document.getElementById('watermark-opacity');
+const wmSize = document.getElementById('watermark-size');
+const wmRotation = document.getElementById('watermark-rotation');
+const wmColor = document.getElementById('watermark-color');
+const opacityValue = document.getElementById('opacity-value');
+const sizeValue = document.getElementById('size-value');
+const rotationValue = document.getElementById('rotation-value');
 
-        async function handleFiles(e) {
-            const newFiles = Array.from(e.target.files);
-            let totalSize = 0;
-            for (const f of newFiles) {
-                const data = await f.arrayBuffer();
-                totalSize += data.byteLength;
-                const item = { name: f.name, bytes: data, size: f.size, pages: [] };
-                if (f.type === 'application/pdf') {
-                    const pdf = await pdfjsLib.getDocument({data: new Uint8Array(data)}).promise; // Copy buffer
-                    for (let p = 1; p <= pdf.numPages; p++) {
-                        const page = await pdf.getPage(p);
-                        const vp = page.getViewport({scale: 1});
-                        const canvas = document.createElement('canvas');
-                        canvas.width = vp.width; canvas.height = vp.height;
-                        await page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
-                        const thumbCanvas = document.createElement('canvas');
-                        const ratio = vp.height / vp.width;
-                        thumbCanvas.width = 80; thumbCanvas.height = 80 * ratio;
-                        thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
-                        item.pages.push({pageNum: p, thumbnail: thumbCanvas.toDataURL()});
-                    }
-                } else if (f.type.startsWith('image/')) {
-                    const img = new Image();
-                    img.src = URL.createObjectURL(f);
-                    await new Promise(r => img.onload = r);
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width; canvas.height = img.height;
-                    canvas.getContext('2d').drawImage(img, 0, 0);
-                    const thumbCanvas = document.createElement('canvas');
-                    const ratio = img.height / img.width;
-                    thumbCanvas.width = 80; thumbCanvas.height = 80 * ratio;
-                    thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
-                    item.pages.push({thumbnail: thumbCanvas.toDataURL()});
-                }
-                files.push(item);
-            }
-            renderFilesList();
-            filesSection.classList.remove('hidden');
-            updateUploadInfo();
-            e.target.value = '';
+const oddBox = document.getElementById('odd-box');
+const evenBox = document.getElementById('even-box');
+const oddCanvas = document.getElementById('odd-preview');
+const evenCanvas = document.getElementById('even-preview');
+const downloadOddLink = document.getElementById('download-odd-link');
+const downloadEvenLink = document.getElementById('download-even-link');
+
+let selectedFile = null;
+let currentOddBlobUrl = null;
+let currentEvenBlobUrl = null;
+
+/* Drag and Drop */
+['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+    });
+});
+
+dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0 && files[0].type === 'application/pdf') {
+        handleFileSelection(files[0]);
+    } else {
+        alert('Please drop a valid PDF file.');
+    }
+});
+
+pdfUpload.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+        handleFileSelection(e.target.files[0]);
+    }
+});
+
+function handleFileSelection(file) {
+    selectedFile = file;
+    fileNameDisplay.textContent = file.name;
+    processBtn.disabled = false;
+}
+
+wmEnabled.addEventListener('change', () => {
+    wmOptions.disabled = !wmEnabled.checked;
+});
+
+wmOpacity.addEventListener('input', () => opacityValue.textContent = wmOpacity.value);
+wmSize.addEventListener('input', () => sizeValue.textContent = wmSize.value);
+wmRotation.addEventListener('input', () => rotationValue.textContent = wmRotation.value);
+
+processBtn.addEventListener('click', processPDF);
+
+/* Main processing */
+async function processPDF() {
+    if (!selectedFile) { alert('Please select a PDF file first.'); return; }
+
+    processBtn.disabled = true;
+    progressContainer.classList.remove('hidden');
+    outputContainer.style.display = 'none';
+    downloadOddLink.classList.add('hidden');
+    downloadEvenLink.classList.add('hidden');
+    progressText.textContent = 'Reading source PDF...';
+
+    // Free previously allocated object URLs
+    if (currentOddBlobUrl) URL.revokeObjectURL(currentOddBlobUrl);
+    if (currentEvenBlobUrl) URL.revokeObjectURL(currentEvenBlobUrl);
+
+    try {
+        const fileBuffer = await selectedFile.arrayBuffer();
+        const originalBytes = new Uint8Array(fileBuffer);
+
+        const { PDFDocument } = PDFLib;
+        const originalPdf = await PDFDocument.load(originalBytes);
+        const pageCount = originalPdf.getPageCount();
+
+        if (pageCount === 0) {
+            throw new Error('The selected PDF contains no pages.');
         }
 
-        function renderFilesList() {
-            filesList.innerHTML = '';
-            files.forEach((file, fi) => {
-                const li = document.createElement('li');
-                li.id = `file-${fi}`;
-                li.innerHTML = `<canvas width="50" height="70"></canvas><span>${file.name} (${file.pages.length} pages, ${(file.size / 1024).toFixed(2)} KB)</span><button class="expand">Expand</button><button class="edit-wm">Edit WM</button><button class="reload btn reload">Reload</button><button class="delete btn delete">Remove</button>`;
-                const thumbCanvas = li.querySelector('canvas');
-                if (file.pages[0]) {
-                    const img = new Image();
-                    img.src = file.pages[0].thumbnail;
-                    img.onload = () => thumbCanvas.getContext('2d').drawImage(img, 0, 0, 50, 70);
-                }
-                const pagesDiv = document.createElement('div');
-                pagesDiv.classList.add('pages');
-                file.pages.forEach((page, pi) => {
-                    const pageDiv = document.createElement('div');
-                    pageDiv.innerHTML = `<canvas width="80" height="113"></canvas><p>Page ${pi+1}</p>`;
-                    const pCanvas = pageDiv.querySelector('canvas');
-                    const pImg = new Image();
-                    pImg.src = page.thumbnail;
-                    pImg.onload = () => pCanvas.getContext('2d').drawImage(pImg, 0, 0, 80, 113);
-                    pCanvas.addEventListener('click', () => openWmModal({fileIndex: fi, pageIndex: pi}));
-                    pagesDiv.appendChild(pageDiv);
-                });
-                li.appendChild(pagesDiv);
-                li.querySelector('.expand').addEventListener('click', () => li.classList.toggle('expanded'));
-                li.querySelector('.edit-wm').addEventListener('click', () => openWmModal({fileIndex: fi}));
-                li.querySelector('.delete').addEventListener('click', () => {
-                    files.splice(fi, 1);
-                    renderFilesList();
-                    updateUploadInfo();
-                });
-                li.querySelector('.reload').addEventListener('click', async () => {
-                    const oldFile = files[fi];
-                    const blob = new Blob([oldFile.bytes]);
-                    const tempFile = new File([blob], oldFile.name, {type: 'application/octet-stream'});
-                    await handleFiles({target: {files: [tempFile]}});
-                    files.splice(fi, 1);
-                    renderFilesList();
-                    updateUploadInfo();
-                });
-                filesList.appendChild(li);
-            });
-            Sortable.create(filesList, {
-                animation: 150,
-                onEnd: (evt) => {
-                    const [moved] = files.splice(evt.oldIndex, 1);
-                    files.splice(evt.newIndex, 0, moved);
-                    renderFilesList();
-                }
-            });
+        // 0-based page index lists
+        const oddPageIndices = [];
+        const evenPageIndices = [];
+        for (let i = 0; i < pageCount; i++) {
+            if ((i + 1) % 2 !== 0) oddPageIndices.push(i);
+            else evenPageIndices.push(i);
         }
 
-        function updateUploadInfo() {
-            const totalFiles = files.length;
-            const totalSize = files.reduce((sum, f) => sum + f.size, 0) / 1048576;
-            uploadInfo.textContent = totalFiles > 0 ? `${totalFiles} files uploaded (~${totalSize.toFixed(2)} MB)` : '';
-            uploadInfo.classList.toggle('hidden', totalFiles === 0);
-            processBtn.disabled = totalFiles === 0;
-        }
-
-        // Rest of the script remains the same as previous (openWmModal, saveWmOptions, hexToRgb, process, impose, updateProgress, setupDownload, renderPreview)
-        function openWmModal(context) {
-            currentWmContext = context;
-            let opts;
-            if (context === 'global') {
-                opts = globalWm || {};
-                wmTitle.textContent = 'Global Watermark';
-            } else if (context.pageIndex !== undefined) {
-                opts = files[context.fileIndex].pages[context.pageIndex].wm || files[context.fileIndex].wm || globalWm || {};
-                wmTitle.textContent = `Page ${context.pageIndex + 1} of ${files[context.fileIndex].name}`;
-            } else {
-                opts = files[context.fileIndex].wm || globalWm || {};
-                wmTitle.textContent = `File: ${files[context.fileIndex].name}`;
-            }
-            wmText.value = opts.text || '';
-            wmPosition.value = opts.position || 'center';
-            wmOpacity.value = opts.opacity || 0.5;
-            wmOpacityVal.textContent = wmOpacity.value;
-            wmSize.value = opts.size || 50;
-            wmSizeVal.textContent = wmSize.value;
-            wmRotation.value = opts.rotation || 0;
-            wmRotationVal.textContent = wmRotation.value;
-            wmColor.value = opts.color || '#ff0000';
-            wmModal.style.display = 'flex';
-        }
-
-        function saveWmOptions() {
-            const opts = {
-                text: wmText.value.trim(),
-                position: wmPosition.value,
+        // Configure watermark options
+        let watermarkOptions = null;
+        if (wmEnabled.checked) {
+            const hex = wmColor.value;
+            watermarkOptions = {
+                text: (wmText.value || '').trim(),
+                position: wmPosition.value || 'center',
                 opacity: parseFloat(wmOpacity.value),
-                size: parseInt(wmSize.value),
-                rotation: parseInt(wmRotation.value),
-                color: hexToRgb(wmColor.value)
-            };
-            if (currentWmContext === 'global') {
-                globalWm = opts;
-            } else if (currentWmContext.pageIndex !== undefined) {
-                files[currentWmContext.fileIndex].pages[currentWmContext.pageIndex].wm = opts;
-            } else {
-                files[currentWmContext.fileIndex].wm = opts;
-            }
-            wmModal.style.display = 'none';
-        }
-
-        function hexToRgb(hex) {
-            return {
-                r: parseInt(hex.slice(1,3),16)/255,
-                g: parseInt(hex.slice(3,5),16)/255,
-                b: parseInt(hex.slice(5,7),16)/255
+                size: parseInt(wmSize.value, 10),
+                rotation: parseInt(wmRotation.value, 10),
+                color: {
+                    r: parseInt(hex.slice(1, 3), 16) / 255,
+                    g: parseInt(hex.slice(3, 5), 16) / 255,
+                    b: parseInt(hex.slice(5, 7), 16) / 255
+                }
             };
         }
 
-        async function process() {
-            processBtn.disabled = true;
-            progressSection.classList.remove('hidden');
-            outputContainer.classList.add('hidden');
-            oddDownload.classList.add('hidden');
-            evenDownload.classList.add('hidden');
-            progressBar.style.width = '0%';
+        // Generate Odd PDF
+        progressText.textContent = 'Imposing odd pages...';
+        const oddOutputPdf = await createImposedPdf(originalBytes, oddPageIndices, 'odd', (t) => progressText.textContent = t, watermarkOptions);
+        const oddPdfBytes = await oddOutputPdf.save();
+        currentOddBlobUrl = setupDownload(downloadOddLink, oddPdfBytes, `${selectedFile.name.replace(/\.pdf$/i, '')}_odd_16up.pdf`);
+        await renderPreview(oddPdfBytes, oddCanvas);
 
-            try {
-                const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
-                const master = await PDFDocument.create();
-                let pageIndex = 0;
-                const fileStarts = [];
+        // Generate Even PDF if pages exist
+        if (evenPageIndices.length > 0) {
+            evenBox.style.display = 'block';
+            progressText.textContent = 'Imposing even pages...';
+            const evenOutputPdf = await createImposedPdf(originalBytes, evenPageIndices, 'even', (t) => progressText.textContent = t, watermarkOptions);
+            const evenPdfBytes = await evenOutputPdf.save();
+            currentEvenBlobUrl = setupDownload(downloadEvenLink, evenPdfBytes, `${selectedFile.name.replace(/\.pdf$/i, '')}_even_16up.pdf`);
+            await renderPreview(evenPdfBytes, evenCanvas);
+        } else {
+            evenBox.style.display = 'none';
+        }
 
-                updateProgress('Combining files...', 10);
-                for (const file of files) {
-                    fileStarts.push({start: pageIndex, name: file.name});
-                    if (file.pages.length > 1) { // PDF
-                        const srcBuffer = new Uint8Array(file.bytes); // Copy buffer
-                        const src = await PDFDocument.load(srcBuffer);
-                        for (const p of file.pages) {
-                            const [copied] = await master.copyPages(src, [p.pageNum - 1]);
-                            master.addPage(copied);
-                            pageIndex++;
-                        }
-                    } else { // Image
-                        const src = await PDFDocument.create();
-                        let image;
-                        const imgBuffer = new Uint8Array(file.bytes);
-                        if (new Blob([imgBuffer]).type === 'image/png') image = await src.embedPng(imgBuffer);
-                        else image = await src.embedJpg(imgBuffer);
-                        const pdfPage = src.addPage([image.width, image.height]);
-                        pdfPage.drawImage(image, {x:0, y:0, width: image.width, height: image.height});
-                        const [copied] = await master.copyPages(src, [0]);
-                        master.addPage(copied);
-                        pageIndex++;
+        outputContainer.style.display = 'grid';
+        progressText.textContent = 'Processing complete!';
+    } catch (err) {
+        console.error('Processing error:', err);
+        progressText.textContent = `Error: ${err.message || err}`;
+        alert(`An error occurred: ${err.message || err}`);
+    } finally {
+        processBtn.disabled = false;
+    }
+}
+
+/**
+ * Creates a new imposed PDF containing 16 mini-pages per A4 sheet (4x4).
+ */
+async function createImposedPdf(originalBytes, pageIndices, type, updateProgress, watermarkOptions) {
+    const { PDFDocument } = PDFLib;
+    const outputPdf = await PDFDocument.create();
+
+    if (!pageIndices || pageIndices.length === 0) return outputPdf;
+
+    const A4_WIDTH = 595.28;  // A4 standard points (approx 595 x 842)
+    const A4_HEIGHT = 841.89;
+    const cellCols = 4;
+    const cellRows = 4;
+    const cellWidth = A4_WIDTH / cellCols;
+    const cellHeight = A4_HEIGHT / cellRows;
+
+    let embeddedFont = null;
+    if (watermarkOptions) {
+        embeddedFont = await outputPdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
+    }
+
+    // Embed all specified source pages in one pass
+    updateProgress(`Embedding ${type} pages...`);
+    const embeddedPages = await outputPdf.embedPdf(originalBytes, pageIndices);
+
+    const totalPages = embeddedPages.length;
+    const numSheets = Math.ceil(totalPages / 16);
+
+    for (let s = 0; s < numSheets; s++) {
+        updateProgress(`Building ${type} sheet (${s + 1}/${numSheets})...`);
+        const targetPage = outputPdf.addPage([A4_WIDTH, A4_HEIGHT]);
+
+        const startIdx = s * 16;
+        const endIdx = Math.min(startIdx + 16, totalPages);
+
+        for (let idx = startIdx; idx < endIdx; idx++) {
+            const i = idx - startIdx;
+            const embeddedPage = embeddedPages[idx];
+            const originalPageNumber = pageIndices[idx] + 1;
+
+            // Grid placement:
+            // Odd pages: Left-to-right (0 -> 3)
+            // Even pages: Right-to-left (3 -> 0) for backing alignment on duplex printing
+            const row = Math.floor(i / cellCols);
+            const col = (type === 'odd') ? (i % cellCols) : (cellCols - 1 - (i % cellCols));
+
+            const cellX = col * cellWidth;
+            const cellY = A4_HEIGHT - (row + 1) * cellHeight;
+
+            // Scale preserving aspect ratio inside the cell with a small 2pt margin
+            const eW = embeddedPage.width;
+            const eH = embeddedPage.height;
+            const scale = Math.min((cellWidth - 4) / eW, (cellHeight - 4) / eH);
+            const drawW = eW * scale;
+            const drawH = eH * scale;
+
+            const drawX = cellX + (cellWidth - drawW) / 2;
+            const drawY = cellY + (cellHeight - drawH) / 2;
+
+            targetPage.drawPage(embeddedPage, {
+                x: drawX,
+                y: drawY,
+                width: drawW,
+                height: drawH
+            });
+
+            // Per-mini-page watermark
+            if (watermarkOptions && embeddedFont) {
+                const prefix = watermarkOptions.text ? `${watermarkOptions.text} ` : '';
+                // Sanitize text to standard ASCII to avoid Helvetica encoding exceptions
+                const miniText = `${prefix}${originalPageNumber}`.replace(/[^\x20-\x7E]/g, '');
+
+                if (miniText.length > 0) {
+                    let fontSize = watermarkOptions.size || 22;
+
+                    // Bound font size dynamically to avoid overflowing the cell
+                    const maxAllowedWidth = drawW * 0.85;
+                    let textWidth = embeddedFont.widthOfTextAtSize(miniText, fontSize);
+                    if (textWidth > maxAllowedWidth) {
+                        fontSize = Math.max(6, Math.floor(fontSize * (maxAllowedWidth / textWidth)));
+                        textWidth = embeddedFont.widthOfTextAtSize(miniText, fontSize);
                     }
-                    if (document.getElementById('separate-files').checked && files.indexOf(file) < files.length - 1) {
-                        const pads = (16 - (pageIndex % 16)) % 16;
-                        for (let i = 0; i < pads; i++) {
-                            master.addPage(paperSizes[document.getElementById('paper-size').value]);
-                            pageIndex++;
-                        }
+
+                    const rad = (watermarkOptions.rotation * Math.PI) / 180;
+                    const cos = Math.cos(rad);
+                    const sin = Math.sin(rad);
+
+                    // Offsets from baseline origin to text geometric center
+                    const cxOffset = textWidth / 2;
+                    const cyOffset = fontSize * 0.35;
+
+                    let targetCenterX, targetCenterY;
+                    switch (watermarkOptions.position) {
+                        case 'top-left':
+                            targetCenterX = drawX + textWidth / 2 + 4;
+                            targetCenterY = drawY + drawH - fontSize / 2 - 4;
+                            break;
+                        case 'top-right':
+                            targetCenterX = drawX + drawW - textWidth / 2 - 4;
+                            targetCenterY = drawY + drawH - fontSize / 2 - 4;
+                            break;
+                        case 'bottom-left':
+                            targetCenterX = drawX + textWidth / 2 + 4;
+                            targetCenterY = drawY + fontSize / 2 + 4;
+                            break;
+                        case 'bottom-right':
+                            targetCenterX = drawX + drawW - textWidth / 2 - 4;
+                            targetCenterY = drawY + fontSize / 2 + 4;
+                            break;
+                        case 'center':
+                        default:
+                            targetCenterX = drawX + drawW / 2;
+                            targetCenterY = drawY + drawH / 2;
+                            break;
                     }
+
+                    // Calculate baseline position such that rotated text centers exactly on target coordinates
+                    const wx = targetCenterX - (cxOffset * cos - cyOffset * sin);
+                    const wy = targetCenterY - (cxOffset * sin + cyOffset * cos);
+
+                    targetPage.drawText(miniText, {
+                        x: wx,
+                        y: wy,
+                        size: fontSize,
+                        font: embeddedFont,
+                        color: PDFLib.rgb(watermarkOptions.color.r, watermarkOptions.color.g, watermarkOptions.color.b),
+                        opacity: watermarkOptions.opacity,
+                        rotate: PDFLib.degrees(watermarkOptions.rotation)
+                    });
                 }
-
-                const totalPages = master.getPageCount();
-                const oddIndices = [], evenIndices = [];
-                for (let i = 0; i < totalPages; i++) {
-                    (i % 2 === 0 ? oddIndices : evenIndices).push(i);
-                }
-
-                const masterBytes = await master.save();
-
-                updateProgress('Imposing odd pages...', 40);
-                const oddPdf = await impose(new Uint8Array(masterBytes), oddIndices, 'odd', fileStarts) || await PDFDocument.create(); // Fallback empty
-                updateProgress('Imposing even pages...', 70);
-                const evenPdf = await impose(new Uint8Array(masterBytes), evenIndices, 'even', fileStarts) || await PDFDocument.create(); // Fallback empty
-
-                updateProgress('Finalizing...', 90);
-                const oddBytes = await oddPdf.save();
-                const evenBytes = await evenPdf.save();
-
-                setupDownload(oddDownload, oddBytes, 'mini_odd.pdf');
-                setupDownload(evenDownload, evenBytes, 'mini_even.pdf');
-
-                await renderPreview(oddBytes, oddPreview);
-                await renderPreview(evenBytes, evenPreview);
-
-                outputContainer.classList.remove('hidden');
-                updateProgress('Done!', 100);
-            } catch (err) {
-                alert(`Error: ${err.message}`);
-                console.error(err);
-            } finally {
-                processBtn.disabled = false;
             }
         }
+    }
 
-        async function impose(bytes, indices, type, fileStarts) {
-            try {
-                const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
-                const out = await PDFDocument.create();
-                const srcBuffer = new Uint8Array(bytes); // Copy
-                const src = await PDFDocument.load(srcBuffer);
-                const paper = paperSizes[document.getElementById('paper-size').value];
-                const w = paper[0], h = paper[1];
-                const cols = 4, rows = 4;
-                const cellW = w / cols, cellH = h / rows;
-                const mmToPt = 2.83465;
-                const marginMm = staplingGuides.checked ? parseInt(marginSlider.value) : 0;
-                const marginPt = marginMm * mmToPt;
-                const font = await out.embedFont(StandardFonts.HelveticaBold);
-                const numSheets = Math.ceil(indices.length / 16);
+    return outputPdf;
+}
 
-                for (let s = 0; s < numSheets; s++) {
-                    const page = out.addPage([w, h]);
-                    const chunk = indices.slice(s*16, (s+1)*16);
-                    const embPages = await out.embedPdf(srcBuffer, chunk);
+/* Helpers */
+function setupDownload(linkElement, bytes, filename) {
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    linkElement.href = url;
+    linkElement.download = filename;
+    linkElement.classList.remove('hidden');
+    return url;
+}
 
-                    for (let i = 0; i < 16; i++) {
-                        if (i >= chunk.length) continue; // Blank slot
-                        const origIdx = chunk[i];
-                        const emb = embPages[i];
-                        const row = Math.floor(i / cols);
-                        const col = type === 'odd' ? i % cols : cols - 1 - (i % cols);
-                        let cx = col * cellW, cy = h - (row + 1) * cellH;
-                        let drawX = cx, drawY = cy;
-                        let effW = cellW, effH = cellH;
+async function renderPreview(pdfBytes, canvasElement) {
+    // Cancel active render task on this canvas if currently in-flight
+    if (canvasElement._currentRenderTask) {
+        try {
+            canvasElement._currentRenderTask.cancel();
+        } catch (e) {}
+    }
 
-                        if (staplingGuides.checked) {
-                            const bindSide = (col % 2 === 0 ? 'left' : 'right'); // Simple alternation
-                            if (bindSide === 'left') {
-                                drawX += marginPt;
-                                effW -= marginPt;
-                            } else {
-                                effW -= marginPt;
-                            }
-                        }
+    const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+    const pdf = await loadingTask.promise;
+    if (pdf.numPages === 0) return;
 
-                        const scale = Math.min(effW / emb.width, effH / emb.height);
-                        const dw = emb.width * scale, dh = emb.height * scale;
-                        drawX += (effW - dw) / 2;
-                        drawY += (effH - dh) / 2;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 0.8 });
+    canvasElement.height = viewport.height;
+    canvasElement.width = viewport.width;
 
-                        page.drawPage(emb, {x: drawX, y: drawY, width: dw, height: dh});
+    const ctx = canvasElement.getContext('2d');
+    ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-                        // Watermark
-                        const file = fileStarts.find(f => origIdx >= f.start) || {};
-                        const fileIdx = files.findIndex(f => f.name === file.name);
-                        const pageWm = fileIdx >= 0 ? files[fileIdx].pages[origIdx - file.start]?.wm : null;
-                        const fileWm = fileIdx >= 0 ? files[fileIdx].wm : null;
-                        const opts = pageWm || fileWm || globalWm;
-                        if (opts) {
-                            let text = opts.text;
-                            if (appendPageNum.checked) text += ` ${origIdx + 1}`;
-                            const size = Math.min(opts.size || 50, dh * 0.35);
-                            const tw = font.widthOfTextAtSize(text, size);
-                            const th = size;
-                            let wx, wy;
-                            switch (opts.position) {
-                                case 'top-left': wx = drawX + 5; wy = drawY + dh - th - 5; break;
-                                case 'top-right': wx = drawX + dw - tw - 5; wy = drawY + dh - th - 5; break;
-                                case 'bottom-left': wx = drawX + 5; wy = drawY + 5; break;
-                                case 'bottom-right': wx = drawX + dw - tw - 5; wy = drawY + 5; break;
-                                default: wx = drawX + (dw - tw)/2; wy = drawY + (dh - th)/2;
-                            }
-                            page.drawText(text, {x: wx, y: wy, size, font, color: rgb(opts.color.r, opts.color.g, opts.color.b), opacity: opts.opacity, rotate: degrees(opts.rotation)});
-                        }
+    const renderTask = page.render({ canvasContext: ctx, viewport });
+    canvasElement._currentRenderTask = renderTask;
 
-                        // Separation label if new file start
-                        if (document.getElementById('separate-files').checked && fileStarts.some(fs => fs.start === origIdx && fileStarts.indexOf(fs) > 0)) {
-                            page.drawText(`Start: ${file.name}`, {x: drawX + 5, y: drawY + dh - 15, size: 10, font, color: rgb(0.5,0.5,0.5), opacity: 0.3});
-                        }
-                    }
-
-                    // Cutting guides
-                    if (document.getElementById('cutting-guides').checked) {
-                        for (let c = 1; c < cols; c++) page.drawLine({start: {x: c*cellW, y: h}, end: {x: c*cellW, y: 0}, thickness: 0.5, dashArray: [2,2], color: rgb(0,0,0), opacity: 0.5});
-                        for (let r = 1; r < rows; r++) {
-                            const y = h - r*cellH;
-                            page.drawLine({start: {x: 0, y}, end: {x: w, y}, thickness: 0.5, dashArray: [2,2], color: rgb(0,0,0), opacity: 0.5});
-                        }
-                    }
-
-                    // Stapling guides: two bold lines near center (assuming saddle-stitch)
-                    if (staplingGuides.checked) {
-                        const stapleX = w / 2 - 5; // Near fold
-                        page.drawLine({start: {x: stapleX, y: h/2 - 50}, end: {x: stapleX, y: h/2 - 10}, thickness: 1, color: rgb(0,0,0)});
-                        page.drawLine({start: {x: stapleX, y: h/2 + 10}, end: {x: stapleX, y: h/2 + 50}, thickness: 1, color: rgb(0,0,0)});
-                    }
-                }
-                return out;
-            } catch (err) {
-                console.error('Imposition error:', err);
-                return await PDFDocument.create(); // Fallback empty PDF
-            }
+    try {
+        await renderTask.promise;
+    } catch (err) {
+        if (err && err.name !== 'RenderingCancelledException') {
+            console.error('Preview render error:', err);
         }
-
-        function updateProgress(text, percent) {
-            progressText.textContent = text;
-            progressBar.style.width = `${percent}%`;
-        }
-
-        function setupDownload(link, bytes, name) {
-            const blob = new Blob([bytes], {type: 'application/pdf'});
-            link.href = URL.createObjectURL(blob);
-            link.download = name;
-            link.classList.remove('hidden');
-        }
-
-        async function renderPreview(bytes, canvas) {
-            const pdf = await pdfjsLib.getDocument(bytes).promise;
-            const page = await pdf.getPage(1);
-            const vp = page.getViewport({scale: 0.5});
-            canvas.width = vp.width; canvas.height = vp.height;
-            await page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
-        }
-    </script>
+    }
+}
+</script>
 </body>
 </html>
